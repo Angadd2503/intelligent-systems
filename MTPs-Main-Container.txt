@@ -1,1 +1,1 @@
-http://10.1.12.250:56643/acc
+http://angadds-mbp.hub:7778/acc

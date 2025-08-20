@@ -1,32 +1,134 @@
 package vrp;
 
 import jade.core.Agent;
+import jade.core.behaviours.*;
+import jade.lang.acl.ACLMessage;
+import jade.lang.acl.MessageTemplate;
+import jade.domain.DFService;
+import jade.domain.FIPAException;
+import jade.domain.FIPAAgentManagement.DFAgentDescription;
+import jade.domain.FIPAAgentManagement.ServiceDescription;
 
-import java.util.List;
 
 public class DeliveryAgent extends Agent {
+    private double baseSpeedKmh = 35.0;
+    private int capacity = 3;
 
-    @Override
     protected void setup() {
-        System.out.println("🚚 " + getLocalName() + " started.");
-
-        // 1) read optional args (e.g., (4,150)) — not required yet
         Object[] args = getArguments();
-        if (args != null && args.length > 0) {
-            System.out.print("Args: ");
-            for (Object a : args) System.out.print(a + " ");
-            System.out.println();
+        if (args != null) {
+            if (args.length > 0) {
+                try { baseSpeedKmh = Double.parseDouble(args[0].toString()); } catch (Exception ignore) {}
+            }
+            if (args.length > 1) {
+                try { capacity = Integer.parseInt(args[1].toString()); } catch (Exception ignore) {}
+            }
+        }
+        System.out.println("Delivery-agent " + getAID().getName() +
+                " up. speed=" + baseSpeedKmh + "km/h, capacity=" + capacity);
+
+        DFAgentDescription dfd = new DFAgentDescription();
+        dfd.setName(getAID());
+        ServiceDescription sd = new ServiceDescription();
+        sd.setType("delivery");
+        sd.setName("JADE-delivery");
+        dfd.addServices(sd);
+        try {
+            DFService.register(this, dfd);
+        } catch (FIPAException fe){
+            fe.printStackTrace();
         }
 
-        // 2) use your parser to load items
-        String path = "data/items.txt";           // keep it simple
-        List<ItemsParser.Item> items = ItemsParser.readItems(path);
+        addBehaviour(new OfferRequestsServer());
 
-        System.out.println("✅ Loaded " + items.size() + " items:");
-        for (ItemsParser.Item it : items) {
-            System.out.println(" - " + it.name + " (" + it.x + ", " + it.y + ")");
+        addBehaviour(new AcceptOrdersServer());
+    }
+
+    protected void takeDown() {
+        try{
+            DFService.deregister(this);
+        } catch (FIPAException fe) {
+            fe.printStackTrace();
         }
+        System.out.println("Delivery-agent " + getAID().getName() + " temrinating.");
+    }
 
-        // keep the agent alive so you can see it in the JADE GUI
+    public void updateSettings(final double newSpeedKmh, final int newCapacity) {
+        addBehaviour(new OneShotBehaviour() {
+            public void action() {
+                baseSpeedKmh = newSpeedKmh;
+                capacity = newCapacity;
+                System.out.println("Settings updated. speed=" + baseSpeedKmh + "km/h, capacity=" + capacity);
+            }
+        });
+    }
+
+    private class OfferRequestsServer extends CyclicBehaviour {
+        public void action() {
+            MessageTemplate mt = MessageTemplate.MatchPerformative(ACLMessage.CFP);
+            ACLMessage msg = myAgent.receive(mt);
+            if (msg != null) {
+                // CFP received
+                double distanceKm = parseDistanceKm(msg.getContent());
+                ACLMessage reply = msg.createReply();
+
+                if (capacity <= 0) {
+                    // No remaining capacity
+                    reply.setPerformative(ACLMessage.REFUSE);
+                    reply.setContent("overloaded");
+                } else if (distanceKm <= 0 || baseSpeedKmh <= 0) {
+                    reply.setPerformative(ACLMessage.REFUSE);
+                    reply.setContent("invalid-request");
+                } else {
+                    // Compute ETA in minutes (distance / speed * 60)
+                    double etaMin = (distanceKm / baseSpeedKmh) * 60.0;
+                    reply.setPerformative(ACLMessage.PROPOSE);
+                    // To mimic BookSeller style, reply with a simple numeric string.
+                    // (Alternatively: reply.setContent("eta=" + String.format(Locale.US,"%.2f", etaMin));)
+                    reply.setContent(String.format(java.util.Locale.US, "%.2f", etaMin));
+                }
+                myAgent.send(reply);
+            } else {
+                block();
+            }
+        }
+    } // End of OfferRequestsServer
+
+    private class AcceptOrdersServer extends CyclicBehaviour {
+        public void action() {
+            MessageTemplate mt = MessageTemplate.MatchPerformative(ACLMessage.ACCEPT_PROPOSAL);
+            ACLMessage msg = myAgent.receive(mt);
+            if (msg != null) {
+                ACLMessage reply = msg.createReply();
+                if (capacity > 0) {
+                    capacity -= 1;
+                    reply.setPerformative(ACLMessage.INFORM);
+                    System.out.println("Job accepted from agent " + msg.getSender().getName()
+                            + ". Remaining capacity=" + capacity);
+                } else {
+                    reply.setPerformative(ACLMessage.FAILURE);
+                    reply.setContent("overloaded");
+                }
+                myAgent.send(reply);
+            } else {
+                block();
+            }
+        }
+    } // End of AcceptOrdersServer
+
+    private double parseDistanceKm(String content) {
+        if (content == null || content.trim().isEmpty()) return -1.0;
+        String s = content.trim();
+        try {
+            // raw numeric?
+            return Double.parseDouble(s);
+        } catch (Exception ignore) {
+            // key=value?
+            String[] parts = s.split("=");
+            if (parts.length == 2 && parts[0].trim().equalsIgnoreCase("distance")) {
+                try { return Double.parseDouble(parts[1].trim()); } catch (Exception e) { return -1.0; }
+            }
+            return -1.0;
+        }
     }
 }
