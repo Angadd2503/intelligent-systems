@@ -35,6 +35,7 @@ public class DeliveryAgent extends Agent {
         dfd.addServices(sd);
         try {
             DFService.register(this, dfd);
+            System.out.println("Agent " + getAID().getName() + " successfully registered as a delivery service.");
         } catch (FIPAException fe){
             fe.printStackTrace();
         }

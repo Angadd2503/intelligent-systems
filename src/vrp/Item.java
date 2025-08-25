@@ -1,9 +1,9 @@
 package vrp;
 
 public class Item {
-    public final int id;     // 1..N
-    public final double x;   // X coordinate
-    public final double y;   // Y coordinate
+    private final int id;
+    private final double x;
+    private final double y;
 
     public Item(int id, double x, double y) {
         this.id = id;
@@ -11,9 +11,21 @@ public class Item {
         this.y = y;
     }
 
+
+    public int getId() {
+        return id;
+    }
+
+    public double getX() {
+        return x;
+    }
+
+    public double getY() {
+        return y;
+    }
+
     @Override
     public String toString() {
         return "Item{id=" + id + ", x=" + x + ", y=" + y + "}";
     }
 }
-
