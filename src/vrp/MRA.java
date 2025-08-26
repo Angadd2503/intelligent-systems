@@ -26,12 +26,9 @@ public class MRA extends Agent {
         });
     }
 
-    /**
-     * Comportement qui collecte les capacités des DeliveryAgents
-     */
     private class CapacityCollectorBehaviour extends Behaviour {
         private AID[] deliveryAgentsAIDs;
-        private int repliesCnt = 0;
+        private int repliesCnt = 0; // The counter of replies
         private MessageTemplate mt;
         private int step = 0;
 
@@ -91,7 +88,7 @@ public class MRA extends Agent {
                                 deliveryAgentsMap.put(reply.getSender(), capacity);
                                 System.out.println("MRA: " + reply.getSender().getLocalName() + " -> capacity: " + capacity);
                             } catch (NumberFormatException e) {
-                                System.out.println("MRA: Invalid response from " + reply.getSender().getLocalName());
+                                System.out.println("Invalid response from " + reply.getSender().getLocalName());
                             }
                         }
                         repliesCnt++;
