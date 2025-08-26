@@ -12,7 +12,7 @@ import jade.domain.FIPAAgentManagement.ServiceDescription;
 import java.util.*;
 
 public class MRA extends Agent {
-    private HashMap<AID, int> deliveryAgentsMap = new HashMap<>();
+    private HashMap<AID, Integer> deliveryAgentsMap = new HashMap<>();
 
     protected void setup() {
         // Printout a welcome message
@@ -108,7 +108,7 @@ public class MRA extends Agent {
                 case 3:
                     // Show result
                     System.out.println("All capacities received:");
-                    for (Map.Entry<AID, int> entry : deliveryAgentsMap.entrySet()) {
+                    for (Map.Entry<AID, Integer> entry : deliveryAgentsMap.entrySet()) {
                         System.out.println(" - " + entry.getKey().getLocalName() + " : " + entry.getValue() + " packages");
                     }
                     step = 4;
