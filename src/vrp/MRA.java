@@ -15,9 +15,9 @@ public class MRA extends Agent {
     private HashMap<AID, int> deliveryAgentsMap = new HashMap<>();
 
     protected void setup() {
+        // Printout a welcome message
         System.out.println("MRA " + getAID().getName() + " is ready.");
 
-        // Comportement qui démarre immédiatement
         addBehaviour(new OneShotBehaviour(this) {
             public void action() {
                 System.out.println("\n--- MRA: Starting communication test ---");
@@ -26,10 +26,15 @@ public class MRA extends Agent {
         });
     }
 
+    protected void takeDown() {
+        // Printout a dismissal message
+        System.out.println("MRA-agent " + getAID().getName() + " terminating.");
+    }
+
     private class CapacityCollectorBehaviour extends Behaviour {
-        private AID[] deliveryAgentsAIDs;
+        private AID[] deliveryAgentsAIDs; 
         private int repliesCnt = 0; // The counter of replies
-        private MessageTemplate mt;
+        private MessageTemplate mt; // The template to receive replies
         private int step = 0;
 
         public void action() {
@@ -103,7 +108,7 @@ public class MRA extends Agent {
                 case 3:
                     // Show result
                     System.out.println("All capacities received:");
-                    for (Map.Entry<AID, Integer> entry : deliveryAgentsMap.entrySet()) {
+                    for (Map.Entry<AID, int> entry : deliveryAgentsMap.entrySet()) {
                         System.out.println(" - " + entry.getKey().getLocalName() + " : " + entry.getValue() + " packages");
                     }
                     step = 4;
@@ -114,9 +119,5 @@ public class MRA extends Agent {
         public boolean done() {
             return (step == 4);
         }
-    }
-
-    protected void takeDown() {
-        System.out.println("MRA-agent " + getAID().getName() + " terminating.");
     }
 }
