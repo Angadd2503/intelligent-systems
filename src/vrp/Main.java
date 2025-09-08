@@ -8,7 +8,6 @@ import jade.wrapper.ContainerController;
 import jade.wrapper.StaleProxyException;
 
 public class Main {
-
     public void startJade(int numDeliveryAgents, double speed, int capacity) {
         Runtime rt = Runtime.instance();
         rt.setCloseVM(true);
@@ -24,26 +23,17 @@ public class Main {
             System.out.println("Starting Delivery Agents...");
             for (int i = 1; i <= numDeliveryAgents; i++) {
                 Object[] args = new Object[]{speed, capacity};
-                AgentController deliveryAgent = mainContainer.createNewAgent(
-                        "delivery-agent-" + i,
-                        "vrp.DeliveryAgent",
-                        args
-                );
+                AgentController deliveryAgent =
+                        mainContainer.createNewAgent("delivery-agent-" + i, "vrp.DeliveryAgent", args);
                 deliveryAgent.start();
             }
 
-            try {
-                Thread.sleep(2000); // Pausa de 2 segundos
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+            // Small pause to allow DF registration
+            try { Thread.sleep(2000L); } catch (InterruptedException ignored) {}
 
             System.out.println("Starting Manager Agent...");
-            AgentController managerAgent = mainContainer.createNewAgent(
-                    "manager",
-                    "vrp.ManagerAgent",
-                    null
-            );
+            AgentController managerAgent =
+                    mainContainer.createNewAgent("manager", "vrp.ManagerAgent", null);
             managerAgent.start();
 
         } catch (StaleProxyException e) {

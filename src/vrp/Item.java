@@ -11,21 +11,12 @@ public class Item {
         this.y = y;
     }
 
+    public int getId() { return id; }
+    public double getX() { return x; }
+    public double getY() { return y; }
 
-    public int getId() {
-        return id;
-    }
-
-    public double getX() {
-        return x;
-    }
-
-    public double getY() {
-        return y;
-    }
-
-    @Override
-    public String toString() {
+    @Override public String toString() {
         return "Item{id=" + id + ", x=" + x + ", y=" + y + "}";
     }
 }
+

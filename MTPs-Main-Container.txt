@@ -1,1 +1,1 @@
-http://localhost:7778/acc
+http://angadds-mbp.hub:7778/acc
