@@ -1,22 +1,22 @@
 package vrp;
 
 public class Item {
-    private final int id;
+    private final String id;
     private final double x;
     private final double y;
+    // Si luego quieres capacidad por peso, añade: private final double weight;
 
-    public Item(int id, double x, double y) {
+    public Item(String id, double x, double y) {
         this.id = id;
         this.x = x;
         this.y = y;
     }
+    // Constructor opcional con peso:
+    // public Item(String id, double x, double y, double weight) { ... }
 
-    public int getId() { return id; }
+    public String getId() { return id; }
     public double getX() { return x; }
     public double getY() { return y; }
-
-    @Override public String toString() {
-        return "Item{id=" + id + ", x=" + x + ", y=" + y + "}";
-    }
+    // public double getWeight() { return weight; }
 }
 
