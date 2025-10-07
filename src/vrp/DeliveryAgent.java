@@ -1,43 +1,51 @@
 package vrp;
 
 import jade.core.Agent;
-import jade.core.AID;
+import jade.core.behaviours.CyclicBehaviour;
 import jade.lang.acl.ACLMessage;
+import jade.lang.acl.MessageTemplate;
 
+// Esta es la versión correcta y compatible
 public class DeliveryAgent extends Agent {
-    private int cap = 10;
-    private double dv = 300;
+    private int capacity;
+    private double maxDistance;
 
     @Override
     protected void setup() {
-        // args estilo "cap=10,dv=300"
+        // 1. Leer los argumentos que le pasa la UI al crearlo
         Object[] args = getArguments();
-        if (args != null && args.length > 0 && args[0] instanceof String) {
-            String s = (String) args[0];
-            for (String kv : s.split(",")) {
-                String[] p = kv.split("=");
-                if (p.length == 2) {
-                    if (p[0].equals("cap")) cap = Integer.parseInt(p[1]);
-                    if (p[0].equals("dv"))  dv  = Double.parseDouble(p[1]);
-                }
-            }
+        if (args != null && args.length == 2) {
+            this.capacity = (int) args[0];
+            this.maxDistance = (double) args[1];
+        } else {
+            // Valores por defecto si no se pasan argumentos
+            this.capacity = 10;
+            this.maxDistance = 300;
         }
-        // Notifica al MRA sus capacidades
-        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
-        msg.setConversationId("capacity");
-        msg.setContent("cap="+cap+",dv="+dv);
-        msg.addReceiver(new AID("MRA", AID.ISLOCALNAME));
-        send(msg);
 
-        addBehaviour(new jade.core.behaviours.CyclicBehaviour(this) {
-            @Override public void action() {
-                ACLMessage m = receive();
-                if (m == null) { block(); return; }
-                if ("route".equals(m.getConversationId())) {
-                    System.out.println(getLocalName()+" recibió ruta: "+m.getContent());
-                    // aquí podrías confirmar o "simular ejecución"
+        // 2. Registrarse con el MRA (se ejecuta una sola vez)
+        ACLMessage registrationMsg = new ACLMessage(ACLMessage.INFORM);
+        registrationMsg.addReceiver(new jade.core.AID("MRA", jade.core.AID.ISLOCALNAME));
+        registrationMsg.setConversationId("capacity"); // <-- Usa ConversationId, no Ontología
+        registrationMsg.setContent("cap=" + capacity + ",dv=" + maxDistance); // <-- Envía el contenido esperado
+        send(registrationMsg);
+        System.out.println(getLocalName() + ": Registration message sent to MRA.");
+
+        // 3. Comportamiento para esperar la ruta final
+        addBehaviour(new CyclicBehaviour(this) {
+            @Override
+            public void action() {
+                // Escucha por un mensaje con el ConversationId "route"
+                MessageTemplate mt = MessageTemplate.MatchConversationId("route");
+                ACLMessage msg = myAgent.receive(mt);
+
+                if (msg != null) {
+                    System.out.println(getLocalName() + ": My route has arrived! -> " + msg.getContent());
+                } else {
+                    block();
                 }
             }
         });
     }
 }
+
