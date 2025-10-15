@@ -1,51 +1,75 @@
 package vrp;
 
+import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 
-// Esta es la versión correcta y compatible
+import com.google.gson.Gson;
+
 public class DeliveryAgent extends Agent {
-    private int capacity;
-    private double maxDistance;
+    private int capacity = 10;
+    private double maxDistance = 300;
+    private final Gson gson = new Gson();
 
     @Override
     protected void setup() {
-        // 1. Leer los argumentos que le pasa la UI al crearlo
         Object[] args = getArguments();
         if (args != null && args.length == 2) {
-            this.capacity = (int) args[0];
-            this.maxDistance = (double) args[1];
-        } else {
-            // Valores por defecto si no se pasan argumentos
-            this.capacity = 10;
-            this.maxDistance = 300;
+            // Accept either (int,double) or (Integer,Double)
+            capacity    = (args[0] instanceof Number) ? ((Number) args[0]).intValue() : capacity;
+            maxDistance = (args[1] instanceof Number) ? ((Number) args[1]).doubleValue() : maxDistance;
         }
 
-        // 2. Registrarse con el MRA (se ejecuta una sola vez)
-        ACLMessage registrationMsg = new ACLMessage(ACLMessage.INFORM);
-        registrationMsg.addReceiver(new jade.core.AID("MRA", jade.core.AID.ISLOCALNAME));
-        registrationMsg.setConversationId("capacity"); // <-- Usa ConversationId, no Ontología
-        registrationMsg.setContent("cap=" + capacity + ",dv=" + maxDistance); // <-- Envía el contenido esperado
-        send(registrationMsg);
-        System.out.println(getLocalName() + ": Registration message sent to MRA.");
+        // Register to MRA
+        ACLMessage reg = new ACLMessage(ACLMessage.INFORM);
+        reg.addReceiver(new AID("MRA", AID.ISLOCALNAME));
+        reg.setConversationId("capacity");
+        reg.setContent("cap=" + capacity + ",dv=" + maxDistance);
+        send(reg);
 
-        // 3. Comportamiento para esperar la ruta final
+        log("DA: " + getLocalName() + " registered  cap=" + capacity + " dv=" + maxDistance);
+
+        // Wait routes
         addBehaviour(new CyclicBehaviour(this) {
             @Override
             public void action() {
-                // Escucha por un mensaje con el ConversationId "route"
                 MessageTemplate mt = MessageTemplate.MatchConversationId("route");
                 ACLMessage msg = myAgent.receive(mt);
-
                 if (msg != null) {
-                    System.out.println(getLocalName() + ": My route has arrived! -> " + msg.getContent());
+                    // Expecting ManagerAgent.RouteInfo JSON, but we’ll log whatever we got
+                    log("MRA → " + getLocalName() + ": route payload received");
+                    log("payload: " + trim(msg.getContent(), 240));
+
+                    // (optional) parse and log distance if it matches RouteInfo
+                    try {
+                        ManagerAgent.RouteInfo info =
+                                gson.fromJson(msg.getContent(), ManagerAgent.RouteInfo.class);
+                        if (info != null) {
+                            log(getLocalName() + ": route size=" +
+                                    (info.route == null ? 0 : info.route.size()) +
+                                    " distance=" + String.format("%.1f", info.distance));
+                        }
+                    } catch (Exception ignored) {}
                 } else {
                     block();
                 }
             }
         });
     }
-}
 
+    private void log(String line) {
+        ACLMessage log = new ACLMessage(ACLMessage.INFORM);
+        log.setConversationId("log");
+        log.setContent(line);
+        log.addReceiver(new AID("GUI", AID.ISLOCALNAME));
+        send(log);
+        System.out.println(line);
+    }
+
+    private static String trim(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max) + " …";
+    }
+}

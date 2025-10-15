@@ -1,17 +1,21 @@
 package vrp;
 
+import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
+
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+
 import java.lang.reflect.Type;
 import java.util.*;
 
 public class ManagerAgent extends Agent {
     private final Map<String, VehicleInfo> vehicles = new LinkedHashMap<>();
     private final Gson gson = new Gson();
+    private String opt = "GREEDY"; // optional, set if you pass opt=... when creating MRA
 
     static class VehicleInfo {
         int cap; double dv;
@@ -21,116 +25,142 @@ public class ManagerAgent extends Agent {
     public static class RouteInfo {
         public final List<Item> route;
         public final double distance;
-
         public RouteInfo(List<Item> route, double distance) {
             this.route = route;
             this.distance = distance;
         }
     }
-    private double calculateRouteDistance(List<Item> route) {
-        if (route == null || route.isEmpty()) {
-            return 0.0;
-        }
-        double totalDist = 0;
-        Item depot = new Item("DEPOT", 0, 0, 0);
-        Item lastStop = depot;
-        for (Item item : route) {
-            totalDist += lastStop.distance(item);
-            lastStop = item;
-        }
-        totalDist += lastStop.distance(depot); // Volver al depósito
-        return totalDist;
-    }
 
     @Override
     protected void setup() {
-        System.out.println("ManagerAgent " + getAID().getLocalName() + " is ready.");
+        // read optional opt=... param
+        Object[] args = getArguments();
+        if (args != null) {
+            for (Object a : args) {
+                String s = String.valueOf(a);
+                if (s.toLowerCase().startsWith("opt=")) opt = s.substring(4).trim().toUpperCase();
+            }
+        }
+
+        sendLog("MRA: started with technique " + opt);
+
         addBehaviour(new CyclicBehaviour(this) {
             @Override
             public void action() {
-                // Template 1: Listen for DA registrations
-                MessageTemplate mtCapacity = MessageTemplate.and(
+                // 1) DA registration
+                MessageTemplate mtCap = MessageTemplate.and(
                         MessageTemplate.MatchPerformative(ACLMessage.INFORM),
                         MessageTemplate.MatchConversationId("capacity")
                 );
-                ACLMessage capacityMsg = myAgent.receive(mtCapacity);
-                if (capacityMsg != null) {
-                    String senderName = capacityMsg.getSender().getLocalName();
-                    String content = capacityMsg.getContent();
+                ACLMessage capMsg = myAgent.receive(mtCap);
+                if (capMsg != null) {
+                    String da = capMsg.getSender().getLocalName();
                     int cap = 10; double dv = 300;
                     try {
-                        for (String kv : content.split(",")) {
+                        for (String kv : capMsg.getContent().split(",")) {
                             String[] p = kv.split("=");
                             if (p.length == 2) {
                                 if (p[0].trim().equals("cap")) cap = Integer.parseInt(p[1].trim());
                                 if (p[0].trim().equals("dv"))  dv  = Double.parseDouble(p[1].trim());
                             }
                         }
-                    } catch (Exception e) { System.err.println("Error parsing capacity from " + senderName); }
-                    vehicles.put(senderName, new VehicleInfo(cap, dv));
-                    System.out.println("MRA: Registered " + senderName + " [cap=" + cap + ", dv=" + dv + "]");
+                    } catch (Exception ignored) {}
+
+                    vehicles.put(da, new VehicleInfo(cap, dv));
+                    sendLog("MRA: registered " + da + "  cap=" + cap + "  dv=" + dv);
                     return;
                 }
 
-                // Template 2: Listen for optimization requests from the GUI
-                MessageTemplate mtOptimize = MessageTemplate.and(
+                // 2) Optimization request from GUI
+                MessageTemplate mtOpt = MessageTemplate.and(
                         MessageTemplate.MatchPerformative(ACLMessage.REQUEST),
                         MessageTemplate.MatchConversationId("optimize-request")
                 );
-                ACLMessage optimizeMsg = myAgent.receive(mtOptimize);
-                if (optimizeMsg != null) {
+                ACLMessage optMsg = myAgent.receive(mtOpt);
+                if (optMsg != null) {
                     if (vehicles.isEmpty()) {
-                        ACLMessage failureReply = optimizeMsg.createReply();
-                        failureReply.setPerformative(ACLMessage.FAILURE);
-                        failureReply.setContent("No DAs registered.");
-                        myAgent.send(failureReply);
+                        ACLMessage fail = optMsg.createReply();
+                        fail.setPerformative(ACLMessage.FAILURE);
+                        fail.setContent("No DAs registered.");
+                        myAgent.send(fail);
+                        sendLog("MRA: optimization aborted — no DAs registered.");
                         return;
                     }
-                    String jsonContent = optimizeMsg.getContent();
+
                     Type listType = new TypeToken<List<Item>>(){}.getType();
-                    List<Item> items = gson.fromJson(jsonContent, listType);
-                    int cap = vehicles.values().stream().findFirst().get().cap;
-                    double dv = vehicles.values().stream().findFirst().get().dv;
+                    List<Item> items = gson.fromJson(optMsg.getContent(), listType);
 
-                    GreedyOptimizer.Result res = GreedyOptimizer.solve(items, vehicles.size(), cap, dv);
+                    int numDAs = vehicles.size();
+                    int cap = vehicles.values().iterator().next().cap;
+                    double dv = vehicles.values().iterator().next().dv;
 
-                    ACLMessage guiReply = optimizeMsg.createReply();
+                    sendLog(String.format(
+                            "GUI → MRA: optimize-request (items=%d, DAs=%d, cap=%d, dv=%.0f, opt=%s)",
+                            items.size(), numDAs, cap, dv, opt));
+
+                    // Greedy (you can branch here if you also wire GA)
+                    GreedyOptimizer.Result res = GreedyOptimizer.solve(items, numDAs, cap, dv);
+                    sendLog("MRA: ✅ Optimization done (Greedy). Delivered=" + res.delivered +
+                            "  TotalDist=" + String.format("%.1f", res.totalDistance));
+
+                    // send each DA its route + log per-DA
+                    List<String> daNames = new ArrayList<>(vehicles.keySet());
+                    int idx = 0;
+                    for (Map.Entry<String, List<Item>> e : res.routes.entrySet()) {
+                        String daName = (idx < daNames.size()) ? daNames.get(idx++) : e.getKey();
+                        List<Item> route = e.getValue();
+                        double rd = computeRouteDistance(route);
+
+                        // send route to DA
+                        RouteInfo payload = new RouteInfo(route, rd);
+                        ACLMessage daMsg = new ACLMessage(ACLMessage.INFORM);
+                        daMsg.setConversationId("route");
+                        daMsg.addReceiver(new AID(daName, AID.ISLOCALNAME));
+                        daMsg.setContent(gson.toJson(payload));
+                        myAgent.send(daMsg);
+
+                        sendLog("MRA → " + daName + ": route of " + route.size() +
+                                " items, dist=" + String.format("%.1f", rd));
+                    }
+
+                    // reply to GUI with the routes map (for drawing)
+                    ACLMessage guiReply = optMsg.createReply();
                     guiReply.setPerformative(ACLMessage.INFORM);
                     guiReply.setConversationId("optimization-result");
-
-                    Map<String, List<Item>> finalRoutes = new HashMap<>();
-                    List<String> daNames = new ArrayList<>(vehicles.keySet());
-                    int daIndex = 0;
-                    for(Map.Entry<String, List<Item>> routeEntry : res.routes.entrySet()) {
-                        if (daIndex < daNames.size()) {
-                            String daName = daNames.get(daIndex++);
-                            List<Item> route = routeEntry.getValue();
-                            finalRoutes.put(daName, route);
-
-                            double routeDistance = calculateRouteDistance(route);
-
-                            // Crea el objeto RouteInfo
-                            RouteInfo routeInfo = new RouteInfo(route, routeDistance);
-
-                            // Envía el objeto RouteInfo como JSON
-                            ACLMessage daRouteMsg = new ACLMessage(ACLMessage.INFORM);
-                            daRouteMsg.setConversationId("route");
-                            daRouteMsg.addReceiver(new jade.core.AID(daName, jade.core.AID.ISLOCALNAME));
-                            daRouteMsg.setContent(gson.toJson(routeInfo)); // <-- Enviamos el nuevo objeto
-                            myAgent.send(daRouteMsg);
-
-                            System.out.println("MRA: Enviada ruta a " + daName + " con distancia: " + String.format("%.1f", routeDistance));
-                        }
-                    }
-                    String status = "Delivered: " + res.delivered + " | Total distance: " + String.format("%.1f", res.totalDistance);
-                    guiReply.setContent(gson.toJson(finalRoutes));
-                    guiReply.addUserDefinedParameter("status", status);
+                    guiReply.setContent(gson.toJson(res.routes));
+                    guiReply.addUserDefinedParameter(
+                            "status",
+                            "Delivered: " + res.delivered +
+                                    " • Total distance: " + String.format("%.1f", res.totalDistance));
                     myAgent.send(guiReply);
-                    System.out.println("MRA: Optimization complete. Results sent to GUI and routes to DAs.");
+
+                    sendLog("MRA: results sent to GUI.");
                     return;
                 }
+
                 block();
             }
         });
+    }
+
+    private double computeRouteDistance(List<Item> route) {
+        if (route == null || route.isEmpty()) return 0.0;
+        double total = 0.0;
+        double x = 0.0, y = 0.0; // depot
+        for (Item it : route) {
+            total += Math.hypot(it.getX() - x, it.getY() - y);
+            x = it.getX(); y = it.getY();
+        }
+        total += Math.hypot(x, y); // back to depot
+        return total;
+    }
+
+    private void sendLog(String line) {
+        ACLMessage log = new ACLMessage(ACLMessage.INFORM);
+        log.setConversationId("log");
+        log.setContent(line);
+        log.addReceiver(new AID("GUI", AID.ISLOCALNAME));
+        send(log);
+        System.out.println(line); // keep console too
     }
 }

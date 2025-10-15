@@ -2,29 +2,41 @@ package vrp;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
-import java.util.ArrayList;
-import java.util.List;
 
 public class ItemsParser {
-    public static List<Item> parseItems(String filePath) throws Exception {
-        List<Item> items = new ArrayList<>();
-        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
-            String line;
+
+    public static java.util.List<Item> parseItems(String path) throws Exception {
+        java.util.List<Item> items = new java.util.ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(path))) {
+            String line; int ln = 0; int autoId = 1;
             while ((line = br.readLine()) != null) {
+                ln++;
                 line = line.trim();
-                if (line.isEmpty() || line.startsWith("#")) {
-                    continue; // Ignorar líneas vacías o comentarios
-                }
-                String[] parts = line.split(",");
-                if (parts.length == 4) {
-                    String id = parts[0].trim();
-                    double x = Double.parseDouble(parts[1].trim());
-                    double y = Double.parseDouble(parts[2].trim());
-                    double weight = Double.parseDouble(parts[3].trim());
-                    items.add(new Item(id, x, y, weight));
+                if (line.isEmpty() || line.startsWith("#") || line.startsWith("//")) continue;
+
+                String[] p = line.split("\\s*,\\s*");
+                if (p.length == 4) {
+                    // id,x,y,demand
+                    items.add(new Item(p[0],
+                            Double.parseDouble(p[1]),
+                            Double.parseDouble(p[2]),
+                            Integer.parseInt(p[3])));
+                } else if (p.length == 3) {
+                    // id,x,y   (demand defaults to 1)
+                    items.add(new Item(p[0],
+                            Double.parseDouble(p[1]),
+                            Double.parseDouble(p[2])));
+                } else if (p.length == 2) {
+                    // x,y  -> auto id, demand=1
+                    items.add(new Item("i"+(autoId++),
+                            Double.parseDouble(p[0]),
+                            Double.parseDouble(p[1])));
+                } else {
+                    throw new IllegalArgumentException("Line "+ln+" invalid: "+line);
                 }
             }
         }
         return items;
     }
 }
+

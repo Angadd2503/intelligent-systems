@@ -1,67 +1,69 @@
 package vrp;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Random;
 
 public class SimpleGAOptimizer {
 
     public static class Result {
-        public final java.util.List<java.util.List<Item>> routes = new java.util.ArrayList<>();
+        public final List<List<Item>> routes = new ArrayList<>();
         public double totalDistance;
         public int itemsDelivered;
     }
 
     private final Random rand = new Random();
 
-    public Result solve(java.util.List<Item> items,
+    public Result solve(List<Item> items,
                         int numVehicles,
                         int capacity,
                         double dv,
                         int generations,
                         int popSize) {
 
-        // población inicial: permutaciones
-        java.util.List<java.util.List<Item>> population = new java.util.ArrayList<>();
+        // Initial population: random permutations
+        List<List<Item>> population = new ArrayList<>();
         for (int i = 0; i < popSize; i++) {
-            java.util.List<Item> copy = new java.util.ArrayList<>(items);
+            List<Item> copy = new ArrayList<>(items);
             Collections.shuffle(copy, rand);
             population.add(copy);
         }
 
-        java.util.List<Item> best = null;
+        List<Item> best = null;
         double bestFit = Double.NEGATIVE_INFINITY;
 
         for (int g = 0; g < generations; g++) {
-            // selección por torneo simple
-            java.util.List<java.util.List<Item>> newPop = new java.util.ArrayList<>();
+            // Simple tournament + OX crossover + swap mutation
+            List<List<Item>> newPop = new ArrayList<>(popSize);
             for (int i = 0; i < popSize; i++) {
-                java.util.List<Item> p1 = population.get(rand.nextInt(popSize));
-                java.util.List<Item> p2 = population.get(rand.nextInt(popSize));
-                java.util.List<Item> child = crossover(p1, p2);
+                List<Item> p1 = population.get(rand.nextInt(popSize));
+                List<Item> p2 = population.get(rand.nextInt(popSize));
+                List<Item> child = crossover(p1, p2);
                 if (rand.nextDouble() < 0.2) mutate(child);
                 newPop.add(child);
             }
             population = newPop;
 
-            for (java.util.List<Item> chrom : population) {
-                double fit = fitness(chrom, numVehicles, capacity, dv);
+            for (List<Item> chrom : population) {
+                double fit = fitnessBalanced(chrom, numVehicles, capacity, dv);
                 if (fit > bestFit) {
                     bestFit = fit;
                     best = chrom;
                 }
             }
         }
-        return decode(best, numVehicles, capacity, dv);
+        return decodeBalanced(best, numVehicles, capacity, dv);
     }
 
-    // Order Crossover (OX) simplificado
-    private java.util.List<Item> crossover(java.util.List<Item> p1, java.util.List<Item> p2) {
+    // ----- GA operators -----
+    private List<Item> crossover(List<Item> p1, List<Item> p2) {
         int n = p1.size();
-        if (n == 0) return new java.util.ArrayList<>();
+        if (n == 0) return new ArrayList<>();
         int a = rand.nextInt(n), b = rand.nextInt(n);
         if (a > b) { int t = a; a = b; b = t; }
 
-        java.util.List<Item> child = new java.util.ArrayList<>(java.util.Collections.nCopies(n, (Item) null));
+        List<Item> child = new ArrayList<>(Collections.nCopies(n, (Item) null));
         for (int i = a; i <= b; i++) child.set(i, p1.get(i));
 
         int idx = (b + 1) % n;
@@ -74,85 +76,130 @@ public class SimpleGAOptimizer {
         return child;
     }
 
-    private void mutate(java.util.List<Item> chrom) {
+    private void mutate(List<Item> chrom) {
         if (chrom.size() < 2) return;
         int i = rand.nextInt(chrom.size());
         int j = rand.nextInt(chrom.size());
-        java.util.Collections.swap(chrom, i, j);
+        Collections.swap(chrom, i, j);
     }
 
-    private double fitness(java.util.List<Item> chrom, int numVehicles, int capacity, double dv) {
-        Result r = decode(chrom, numVehicles, capacity, dv);
+    // ----- Fitness using the balanced decoder -----
+    private double fitnessBalanced(List<Item> chrom, int numVehicles, int capacity, double dv) {
+        Result r = decodeBalanced(chrom, numVehicles, capacity, dv);
+        // Reward delivered items heavily; penalize distance
         return r.itemsDelivered * 1000.0 - r.totalDistance;
     }
 
-    private Result decode(java.util.List<Item> chrom, int numVehicles, int capacity, double dv) {
+    // ===== Balanced decoder =====
+    // Places each item on the vehicle with the smallest feasible added distance.
+    // Respects capacity and per-vehicle dv.
+    private Result decodeBalanced(List<Item> chrom, int numVehicles, int capacity, double dv) {
         Result res = new Result();
-        for (int v = 0; v < numVehicles; v++) res.routes.add(new java.util.ArrayList<>());
+        for (int v = 0; v < numVehicles; v++) res.routes.add(new ArrayList<>());
 
-        int v = 0;
-        double vx = 0.0, vy = 0.0; // posición actual del vehículo
-        double vdist = 0.0;        // distancia acumulada SIN incluir la vuelta
-        int vcount = 0;            // items cargados en el vehículo actual
+        double[] curX = new double[numVehicles];
+        double[] curY = new double[numVehicles];
+        double[] curDist = new double[numVehicles]; // distance so far (without final return)
+        int[]    curCount = new int[numVehicles];
+
+        for (int i = 0; i < numVehicles; i++) {
+            curX[i] = 0.0; curY[i] = 0.0; curDist[i] = 0.0; curCount[i] = 0;
+        }
 
         for (Item it : chrom) {
-            if (v >= numVehicles) break;
+            int bestV = -1;
+            double bestAdded = Double.POSITIVE_INFINITY;
 
-            // si se llenó la capacidad, cerramos y pasamos al siguiente vehículo
-            if (vcount >= capacity) {
-                // reiniciar estado para el siguiente vehículo
-                v++;
-                if (v >= numVehicles) break;
-                vx = 0.0; vy = 0.0; vdist = 0.0; vcount = 0;
+            for (int v = 0; v < numVehicles; v++) {
+                if (curCount[v] >= capacity) continue;
+
+                double leg = hypot(it.getX() - curX[v], it.getY() - curY[v]);
+                double projected = curDist[v] + leg + hypot(it.getX(), it.getY());
+
+                if (projected <= dv) {
+                    // tiny bias by vehicle index to avoid deterministic ties
+                    double added = (curDist[v] + leg + hypot(it.getX(), it.getY()))
+                            - (curDist[v] + hypot(curX[v], curY[v]))
+                            + 1e-6 * v;
+                    if (added < bestAdded) {
+                        bestAdded = added;
+                        bestV = v;
+                    }
+                }
             }
 
-            double leg = Math.hypot(it.getX() - vx, it.getY() - vy);
-            double projected = vdist + leg + Math.hypot(it.getX(), it.getY()); // ida + vuelta desde el nuevo punto
-            if (projected <= dv) {
-                res.routes.get(v).add(it);
-                vdist += leg;
-                vx = it.getX(); vy = it.getY();
-                vcount++;
+            if (bestV >= 0) {
+                res.routes.get(bestV).add(it);
+                curDist[bestV] += hypot(it.getX() - curX[bestV], it.getY() - curY[bestV]);
+                curX[bestV] = it.getX();
+                curY[bestV] = it.getY();
+                curCount[bestV]++;
             }
-            // si no cabe por dv, probamos siguiente ítem (estrategia simple)
         }
 
-        // calcular la distancia total (una sola vez por ruta)
+        // Local improvement (2-opt) per route to reduce distance
+        for (List<Item> route : res.routes) {
+            twoOpt(route);
+        }
+
+        // Compute totals
         res.totalDistance = 0.0;
-        for (java.util.List<Item> route : res.routes) {
+        int delivered = 0;
+        for (int v = 0; v < numVehicles; v++) {
+            List<Item> route = res.routes.get(v);
             if (route.isEmpty()) continue;
-            double x = 0.0, y = 0.0;
+
+            double x = 0.0, y = 0.0, d = 0.0;
             for (Item it : route) {
-                res.totalDistance += Math.hypot(it.getX() - x, it.getY() - y);
+                d += hypot(it.getX() - x, it.getY() - y);
                 x = it.getX(); y = it.getY();
             }
-            res.totalDistance += Math.hypot(x, y); // regresar al depósito
+            d += hypot(x, y); // return to depot
+            res.totalDistance += d;
+            delivered += route.size();
         }
-
-        res.itemsDelivered = res.routes.stream().mapToInt(java.util.List::size).sum();
+        res.itemsDelivered = delivered;
         return res;
     }
 
-    // distancia dentro de la ruta (sin la vuelta)
-    private double intraDistance(java.util.List<Item> route) {
-        double sum = 0.0;
-        double x = 0.0, y = 0.0;
-        for (Item it : route) {
-            sum += Math.hypot(it.getX() - x, it.getY() - y);
-            x = it.getX(); y = it.getY();
+    // -------- 2-opt local improvement ----------
+    private static void twoOpt(List<Item> route) {
+        int n = route.size();
+        if (n < 4) return;
+        boolean improved = true;
+        while (improved) {
+            improved = false;
+            for (int i = 0; i < n - 3; i++) {
+                for (int k = i + 2; k < n - 1; k++) {
+                    double a1 = segLen(route, i, i + 1);
+                    double a2 = segLen(route, k, k + 1);
+                    double b1 = segLen(route, i, k);
+                    double b2 = segLen(route, i + 1, k + 1);
+                    if (b1 + b2 + 1e-9 < a1 + a2) {
+                        // reverse (i+1..k)
+                        for (int l = i + 1, r = k; l < r; l++, r--) {
+                            Collections.swap(route, l, r);
+                        }
+                        improved = true;
+                    }
+                }
+            }
         }
-        return sum;
     }
 
-    // distancia completa de la ruta SIN incluir el cierre (lo sumo aparte arriba para consistencia)
-    private double pathDistance(java.util.List<Item> route) {
-        if (route.isEmpty()) return 0.0;
-        double sum = 0.0;
-        double x = 0.0, y = 0.0;
-        for (Item it : route) {
-            sum += Math.hypot(it.getX() - x, it.getY() - y);
-            x = it.getX(); y = it.getY();
-        }
-        return sum;
+    private static double segLen(List<Item> r, int a, int b) {
+        double xa = (a >= 0 && a < r.size()) ? r.get(a).getX() : 0.0;
+        double ya = (a >= 0 && a < r.size()) ? r.get(a).getY() : 0.0;
+        double xb = (b >= 0 && b < r.size()) ? r.get(b).getX() : 0.0;
+        double yb = (b >= 0 && b < r.size()) ? r.get(b).getY() : 0.0;
+        return hypot(xb - xa, yb - ya);
+    }
+
+    // Utilities
+    private static double hypot(double dx, double dy) {
+        return Math.hypot(dx, dy);
     }
 }
+
+
+

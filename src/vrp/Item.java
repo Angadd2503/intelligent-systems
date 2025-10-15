@@ -4,27 +4,30 @@ public class Item {
     private final String id;
     private final double x;
     private final double y;
-    private final double weight;
+    private final int demand; // NEW
 
-    public Item(String id, double x, double y, double weight) {
+    // Default demand = 1 for existing code paths
+    public Item(String id, double x, double y) {
+        this(id, x, y, 1);
+    }
+
+    public Item(String id, double x, double y, int demand) {
         this.id = id;
         this.x = x;
         this.y = y;
-        this.weight = weight;
+        this.demand = demand <= 0 ? 1 : demand;
     }
 
     public String getId() { return id; }
-    public double getX() { return x; }
-    public double getY() { return y; }
-    public double getWeight() { return weight; }
-
-    public double distance(Item other) {
-        return Math.sqrt(Math.pow(this.x - other.x, 2) + Math.pow(this.y - other.y, 2));
-    }
+    public double getX()  { return x;  }
+    public double getY()  { return y;  }
+    public int getDemand(){ return demand; }
 
     @Override
     public String toString() {
-        return id;
+        return "Item{" + id + ",x=" + x + ",y=" + y + ",d=" + demand + "}";
     }
 }
+
+
 

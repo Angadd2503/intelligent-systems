@@ -1,74 +1,81 @@
 package vrp;
 
-import java.util.*;
+import java.util.LinkedHashMap;
 
 public class GreedyOptimizer {
 
-    // Clase interna para devolver un resultado estructurado
     public static class Result {
-        public final Map<String, List<Item>> routes;
-        public final int delivered;
-        public final double totalDistance;
-
-        public Result(Map<String, List<Item>> routes, int delivered, double totalDistance) {
-            this.routes = routes;
-            this.delivered = delivered;
-            this.totalDistance = totalDistance;
-        }
+        public final java.util.Map<String, java.util.List<Item>> routes = new LinkedHashMap<>();
+        public int delivered = 0;
+        public double totalDistance = 0.0;
     }
 
-    public static Result solve(List<Item> allItems, int numVehicles, int capacity, double maxDistance) {
-        Map<String, List<Item>> routes = new LinkedHashMap<>();
-        Set<Item> unassignedItems = new HashSet<>(allItems);
-        double totalDistance = 0;
-        int deliveredCount = 0;
+    public static Result solve(java.util.List<Item> items, int numDAs, int capacityPerDA, double dvPerDA) {
+        Result res = new Result();
+        java.util.List<Item> remaining = new java.util.ArrayList<>(items);
 
-        Item depot = new Item("DEPOT", 0, 0, 0);
+        for (int a = 1; a <= numDAs; a++) {
+            String name = "DA" + a;
+            java.util.List<Item> route = new java.util.ArrayList<>();
+            res.routes.put(name, route);
 
-        for (int i = 1; i <= numVehicles; i++) {
-            String vehicleId = "Route " + i;
-            List<Item> currentRoute = new ArrayList<>();
-            double currentDistance = 0;
-            Item lastLocation = depot;
+            double traveled = 0.0;
+            int capLeft = capacityPerDA;
+            double curX = 0.0, curY = 0.0; // depot (0,0)
 
-            while (currentRoute.size() < capacity) {
-                Item closestItem = null;
-                double minDistance = Double.MAX_VALUE;
+            while (capLeft > 0 && !remaining.isEmpty()) {
+                Item best = null;
+                double bestGain = Double.POSITIVE_INFINITY;
 
-                // Encontrar el item no asignado más cercano
-                for (Item item : unassignedItems) {
-                    double dist = lastLocation.distance(item);
-                    if (dist < minDistance) {
-                        minDistance = dist;
-                        closestItem = item;
+                for (Item it : remaining) {
+                    int dmd = it.getDemand();
+                    if (dmd > capLeft) continue; // capacity gate
+
+                    double toItem = dist(curX, curY, it.getX(), it.getY());
+                    double backHome = dist(it.getX(), it.getY(), 0, 0);
+                    double projected = traveled + toItem + backHome;
+                    if (projected <= dvPerDA && toItem < bestGain) {
+                        bestGain = toItem; best = it;
                     }
                 }
+                if (best == null) break;
 
-                if (closestItem == null) {
-                    break; // No hay más items para asignar
-                }
+                traveled += dist(curX, curY, best.getX(), best.getY());
+                curX = best.getX(); curY = best.getY();
+                route.add(best);
+                remaining.remove(best);
+                capLeft -= best.getDemand();
+            }
+            traveled += dist(curX, curY, 0, 0);
 
-                double distanceToNext = lastLocation.distance(closestItem);
-                double returnToDepotDist = closestItem.distance(depot);
-
-                if (currentDistance + distanceToNext + returnToDepotDist <= maxDistance) {
-                    currentRoute.add(closestItem);
-                    unassignedItems.remove(closestItem);
-                    currentDistance += distanceToNext;
-                    lastLocation = closestItem;
-                } else {
-                    // No se puede añadir este item sin exceder la distancia máxima, probar con otro.
-                    // Para un greedy simple, simplemente paramos aquí para este vehículo.
-                    break;
-                }
+            // Trim if dv exceeded (put back last items, restore capacity)
+            while (traveled > dvPerDA && !route.isEmpty()) {
+                Item last = route.remove(route.size() - 1);
+                remaining.add(last);
+                capLeft += last.getDemand();
+                traveled = recomputeDistance(route);
             }
 
-            currentDistance += lastLocation.distance(depot); // Añadir distancia de vuelta al depósito
-            routes.put(vehicleId, currentRoute);
-            totalDistance += currentDistance;
-            deliveredCount += currentRoute.size();
+            res.delivered += route.size();
+            res.totalDistance += traveled;
         }
+        return res;
+    }
 
-        return new Result(routes, deliveredCount, totalDistance);
+    private static double recomputeDistance(java.util.List<Item> route) {
+        double d = 0.0, x = 0.0, y = 0.0;
+        for (Item it : route) {
+            d += dist(x, y, it.getX(), it.getY());
+            x = it.getX(); y = it.getY();
+        }
+        d += dist(x, y, 0, 0);
+        return d;
+    }
+
+    private static double dist(double x1, double y1, double x2, double y2) {
+        return Math.hypot(x1 - x2, y1 - y2);
     }
 }
+
+
+
