@@ -20,32 +20,57 @@ public final class JadePlatformManager {
 
     private JadePlatformManager() {}
 
-    public static synchronized boolean isRunning() { return running; }
+    public static synchronized boolean isRunning() {
+        return running;
+    }
 
-    public static synchronized void start(MasUI ui, String opt, int numDAs, int cap, double dv) throws Exception {
+    public static synchronized void start(MasUI ui,
+                                          String opt,
+                                          int numDAs,
+                                          int cap,
+                                          double dv) throws Exception {
+        // If already running, shut it down first so we don't create a second platform
         if (running) stop();
 
+        // 1) Start JADE platform runtime + main container
         runtime = Runtime.instance();
         Profile p = new ProfileImpl();
 
+        // show JADE's yellow RMA and allow HTTP-MTP to auto pick a port
         p.setParameter(Profile.GUI, "true");
-        // IMPORTANT: auto-port MTP avoids 7778 reuse & deadMTP errors on quick restarts
         p.setParameter("mtp", "jade.mtp.http.MessageTransportProtocol(-port 0)");
 
         main = runtime.createMainContainer(p);
 
-        mra = main.createNewAgent("MRA", "vrp.ManagerAgent", new Object[]{"opt=" + opt});
+        // 2) Start Master Routing Agent (MRA), tell it which optimization to use
+        mra = main.createNewAgent(
+                "MRA",
+                "vrp.ManagerAgent",
+                new Object[]{"opt=" + opt}
+        );
         mra.start();
 
         System.out.println("Starting " + numDAs + " DAs with args: cap=" + cap + ",dv=" + dv);
+
+        // 3) Start Delivery Agents, IMPORTANT:
+        //    pass real numeric args {cap, dv} so DeliveryAgent.setup() reads them correctly.
         for (int i = 1; i <= numDAs; i++) {
-            AgentController da = main.createNewAgent("DA" + i, "vrp.DeliveryAgent",
-                    new Object[]{"cap=" + cap, "dv=" + dv});
+            AgentController da = main.createNewAgent(
+                    "DA" + i,
+                    "vrp.DeliveryAgent",
+                    new Object[]{cap, dv}     // <-- FIXED: was {"cap=" + cap, "dv=" + dv}
+            );
             da.start();
             das.add(da);
         }
 
-        gui = main.createNewAgent("GUI", "vrp.GuiAgent", new Object[]{ ui });
+        // 4) Start GUI Agent and give it the SAME MasUI instance (the visible Swing window)
+        //    so GuiAgent can call ui.updateRoutes(...) and repaint the canvas you are looking at.
+        gui = main.createNewAgent(
+                "GUI",
+                "vrp.GuiAgent",
+                new Object[]{ ui }
+        );
         gui.start();
 
         running = true;
@@ -53,7 +78,7 @@ public final class JadePlatformManager {
     }
 
     public static synchronized void stop() {
-        // Kill agents first; suppress any errors so shutdown proceeds
+        // Kill agents first; ignore errors so shutdown always continues
         try { if (gui != null) gui.kill(); } catch (Exception ignored) {}
         try { if (mra != null) mra.kill(); } catch (Exception ignored) {}
         for (AgentController da : das) {
@@ -66,7 +91,7 @@ public final class JadePlatformManager {
         try {
             if (runtime != null) {
                 runtime.shutDown();
-                // Give the MTP a breath to release sockets, avoids 1099/7778 races
+                // tiny pause so ports release cleanly
                 try { Thread.sleep(400); } catch (InterruptedException ignored) {}
             }
         } catch (Exception ignored) {}
@@ -80,9 +105,13 @@ public final class JadePlatformManager {
     }
 
     public static synchronized void restart(MasUI ui) throws Exception {
-        start(ui, ui.getSelectedOpt(), ui.getNumDAs(), ui.getCapacityPerDA(), ui.getMaxDistance());
+        // restart with whatever is currently in the UI
+        start(
+                ui,
+                ui.getSelectedOpt(),
+                ui.getNumDAs(),
+                ui.getCapacityPerDA(),
+                ui.getMaxDistance()
+        );
     }
 }
-
-
-

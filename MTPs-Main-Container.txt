@@ -1,1 +1,1 @@
-http://10.1.1.192:7778/acc
+http://angadds-mbp-2.mymodem:7778/acc
