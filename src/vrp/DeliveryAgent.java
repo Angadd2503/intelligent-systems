@@ -1,3 +1,4 @@
+// DeliveryAgent.java
 package vrp;
 
 import jade.core.AID;
@@ -16,11 +17,22 @@ public class DeliveryAgent extends Agent {
     @Override
     protected void setup() {
         Object[] args = getArguments();
-        if (args != null && args.length == 2) {
-            // Accept either (int,double) or (Integer,Double)
-            capacity    = (args[0] instanceof Number) ? ((Number) args[0]).intValue() : capacity;
-            maxDistance = (args[1] instanceof Number) ? ((Number) args[1]).doubleValue() : maxDistance;
+        if (args != null && args.length >= 2) {
+            try {
+                // Handle Integer or int
+                if (args[0] instanceof Number) {
+                    capacity = ((Number) args[0]).intValue();
+                }
+                // Handle Double or double
+                if (args[1] instanceof Number) {
+                    maxDistance = ((Number) args[1]).doubleValue();
+                }
+            } catch (Exception e) {
+                System.err.println("DA " + getLocalName() + ": Error parsing args, using defaults. " + e.getMessage());
+            }
         }
+
+        System.out.println("DA: " + getLocalName() + " initialized with cap=" + capacity + " dv=" + maxDistance);
 
         // Register to MRA
         ACLMessage reg = new ACLMessage(ACLMessage.INFORM);
@@ -29,20 +41,19 @@ public class DeliveryAgent extends Agent {
         reg.setContent("cap=" + capacity + ",dv=" + maxDistance);
         send(reg);
 
-        log("DA: " + getLocalName() + " registered  cap=" + capacity + " dv=" + maxDistance);
+        log("DA: " + getLocalName() + " registered cap=" + capacity + " dv=" + maxDistance);
 
-        // Wait routes
+        // Wait for routes
         addBehaviour(new CyclicBehaviour(this) {
             @Override
             public void action() {
                 MessageTemplate mt = MessageTemplate.MatchConversationId("route");
                 ACLMessage msg = myAgent.receive(mt);
                 if (msg != null) {
-                    // Expecting ManagerAgent.RouteInfo JSON, but we’ll log whatever we got
                     log("MRA → " + getLocalName() + ": route payload received");
                     log("payload: " + trim(msg.getContent(), 240));
 
-                    // (optional) parse and log distance if it matches RouteInfo
+                    // Parse and log distance if it matches RouteInfo
                     try {
                         ManagerAgent.RouteInfo info =
                                 gson.fromJson(msg.getContent(), ManagerAgent.RouteInfo.class);
@@ -51,7 +62,9 @@ public class DeliveryAgent extends Agent {
                                     (info.route == null ? 0 : info.route.size()) +
                                     " distance=" + String.format("%.1f", info.distance));
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        log(getLocalName() + ": Error parsing route: " + e.getMessage());
+                    }
                 } else {
                     block();
                 }
