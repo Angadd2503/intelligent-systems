@@ -68,7 +68,7 @@ Displays logs and visual feedback:
 
 # Step 1: Clone the Repository
 Start by cloning the source code from GitHub:
-git clone https://github.com/Sofiazugasti/devops-pipeline-SWE4006.git
+git clone 
 Once cloned, open the project folder in IntelliJ IDEA and confirm that the IDE detects the Java SDK (Java 24 or 17)
 
 # Step 2: Install JADE
